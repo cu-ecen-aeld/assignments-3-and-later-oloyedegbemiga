@@ -35,6 +35,8 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
 fi
 
 echo "Adding the Image in outdir"
@@ -48,6 +50,9 @@ then
 fi
 
 # TODO: Create necessary base directories
+mkdir -p "${OUTDIR}/bin" "${OUTDIR}/dev" "${OUTDIR}/etc" "${OUTDIR}/home" "${OUTDIR}/lib" "${OUTDIR}/lib64" "${OUTDIR}/proc" "${OUTDIR}/sbin" "${OUTDIR}/sys" "${OUTDIR}/tmp" "${OUTDIR}/usr" "${OUTDIR}/var"
+mkdir -p "${OUTDIR}/usr/bin" "${OUTDIR}/usr/bin" "${OUTDIR}/usr/sbin"
+mkdir -p "${OUTDIR}/var/log"
 
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
@@ -56,17 +61,38 @@ git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
     # TODO:  Configure busybox
+    make ARCH=${ARCH} CROSS_COMPLILE=${CROSS_COMPILE} distclean
+    make ARCH=${ARCH} CROSS_COMPLILE=${CROSS_COMPILE} defconfig
+
 else
     cd busybox
 fi
 
 # TODO: Make and install busybox
+make -j"${nproc}" ARCH=${ARCH} CROSS_COMPLILE=${CROSS_COMPILE}
+make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPLILE=${CROSS_COMPILE} install 
 
 echo "Library dependencies"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
+INTERPRETER="$(${CROSS_COMPILE}readelf -a bin/busybox | sed -n 's/.*Requesting program from interpreter: \(.*\)/\1/p')"
+SYSROOT="$(${CROSS_COMPILE}gcc -print-sysroot)"
+
+if [ -n "${INTERPRETER}" ]
+    then
+        mkdir -p "${OUTDIR}/rootfs$(dirname "${INTERPRETER}")"
+        cp -L "${SYSROOT}${INTERPRETER}" "${OUTDIR}/rootfs${INTERPRETER}"
+    fi
+
+for LIBRARY in $(${CROSS_COMPILE}readelf -d bin/busybox | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
+do
+    LIBRARY_PATH="$(find "${SYSROOT}/lib" "${SYSROOT}/usr/lib" -name ${LIBRARY} -print -quit)"
+    mkdir -p "${OUTDIR}/rootfs$(dirname ${LIBRARY#"${SYSROOT}"})"
+    cp -L "${LIBRARY_PATH}" "${OUTDIR}/rootfs${LIBRARY_PATH#"${SYSROOT}"}"
+
+done
 
 # TODO: Make device nodes
 
